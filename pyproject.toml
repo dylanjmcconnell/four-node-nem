@@ -1,9 +1,9 @@
 [project]
 name = "four-node-nem"
 version = "0.1.0"
-description = "Add your description here"
+description = "A simple, four node model of NEM to demonstrate the basic workflow of a capacity expansion modelling excercise, using PyPSA"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
     "cartopy>=0.25.0",
     "ipython>=9.6.0",
