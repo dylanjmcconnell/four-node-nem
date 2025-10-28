@@ -10,6 +10,7 @@ Recommended to install and run this project using [uv](https://docs.astral.sh/uv
 
 ```
 git clone  https://github.com/dylanjmcconnell/four-node-nem
+cd four-node-nem/
 uv sync
 uv run jupter notebook
 ```
