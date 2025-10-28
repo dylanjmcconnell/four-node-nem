@@ -2,32 +2,48 @@ import pypsa
 import pandas as pd
 from pypsa.common import annuity
 
-REGIONS = ["VIC"]#, "SA", "NSW", "QLD"]
-#As implemented, must match Bus names and df columns
+#List of regions to model by default
+REGIONS = ["VIC", "SA", "QLD", "NSW"]
+
+REGION_DICT = {"NSW":  {"x":151.20, "y":-33.87},
+               "QLD":  {"x":153.03, "y":-27.47},
+               "SA":   {"x": 138.63, "y":-34.93},
+               "VIC":   {"x": 145.01, "y":-37.81},
+                }
 
 CARRIERS = {
     "solar": "#F8E71C", #"gold",
     "wind": "#417505", #"green",
     "gas": "#F48E1B", #"orange"
+    "brown_coal": "#8B572A", #brown
+    "black_coal": "black",
+    "load": "slategrey",
+    "AC": "violet"
     }
-    #"brown_coal": "#8B572A", #brown
-    #"black_coal": "black",
-    #"load": "slategrey",
-    #"AC": "violet"
-    #}
 
-EXISTING_COAL = {"NSW": {"tech":"black", "capacity":4000, "marginal": 50},
-                 "QLD": {"tech":"black", "capacity":5000, "marginal": 50},
+#capacity and marginal cost for existing plants
+EXISTING_COAL = {"NSW": {"tech":"black", "capacity":4000, "marginal": 60},
+                 "QLD": {"tech":"black", "capacity":5000, "marginal": 60},
                  "VIC": {"tech":"brown", "capacity":3000, "marginal": 20}}
+
+#capex for new capacity
+NEW_CAPACITY = {"wind": 2_800_000,
+                "solar":1_100_000,
+                 "gas": 2_000_000 }
+
+GAS_MARGINAL = 120
+
+LINKS = {"VIC-SA": {"bus0": "VIC", "bus1": "SA", "p_nom":1000},
+         "VIC-NSW": {"bus0": "VIC", "bus1": "NSW", "p_nom":2500},
+         "NSW-QLD": {"bus0": "NSW", "bus1": "QLD", "p_nom":1500}}
 
 def create_network():
     network = pypsa.Network(name="four-node-nem")
 
-    #Add nodes
-    #network.add("Bus", name="NSW", x=151.20, y=-33.87)
-    #network.add("Bus", name="QLD", x=153.03, y=-27.47)
-    #network.add("Bus", name="SA", x=138.63, y=-34.93)
-    network.add("Bus", name="VIC", x=145.01, y=-37.81)
+    for name in REGIONS:
+        network.add("Bus", name=name, **REGION_DICT[name])
+
+    add_carriers(network)
     return network
 
 
@@ -57,7 +73,7 @@ def add_snapshots_and_loads(network):
             REGIONS,
             suffix="_load", 
             bus=REGIONS, 
-            p_set=df_load[REGIONS], 
+            p_set=df_load[REGIONS].clip(lower=0), 
             carrier="load")
 
 def add_vre(network, df, tech, capex):
@@ -96,20 +112,34 @@ def add_gas(network, capex, marginal):
         carrier="gas")
 
 def add_generators(network):
-    #df_wind = wind_data()
-    #add_vre(network, df_wind, "wind", capex=2_000_000)
+    df_wind = wind_data()
+    add_vre(network, df_wind, "wind", capex=NEW_CAPACITY["wind"])
 
-    #df_solar = solar_data()
-    #add_vre(network, df_solar, "solar", capex=700_000)
+    df_solar = solar_data()
+    add_vre(network, df_solar, "solar", capex=NEW_CAPACITY["solar"])
 
-    add_gas(network, capex=2_500_000, marginal=120)
+    add_gas(network, capex=NEW_CAPACITY["gas"], marginal=GAS_MARGINAL)
 
-    #for region in REGIONS:
-    #    if region != "SA":
-    #        add_coal(network=network, region=region, **EXISTING_COAL[region])
+    for region in REGIONS:
+        if region != "SA":
+            add_coal(network=network, region=region, **EXISTING_COAL[region])
+
+def add_links(network):
 
 
-
-    
-
-    
+    for name, attrs in LINKS.items():
+        if attrs["bus0"] in REGIONS and attrs["bus1"] in REGIONS:
+                network.add(
+                        "Link",
+                        name,
+                        carrier="AC",
+                        p_min_pu=-1,  #bidirectional 
+                        **attrs
+                    )
+                
+def build_full_problem():
+    network = create_network()
+    add_snapshots_and_loads(network)
+    add_generators(network)
+    add_links(network)
+    return network
