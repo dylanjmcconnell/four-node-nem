@@ -3,7 +3,6 @@ import pandas as pd
 from pypsa.common import annuity
 
 #List of regions to model by default
-REGIONS = ["VIC", "SA", "QLD", "NSW"]
 
 REGION_DICT = {"NSW":  {"x":151.20, "y":-33.87},
                "QLD":  {"x":153.03, "y":-27.47},
@@ -18,6 +17,8 @@ CARRIERS = {
     "brown_coal": "#8B572A", #brown
     "black_coal": "black",
     "load": "slategrey",
+    "bess": "blue",
+    "bess-storage": "lightblue",
     "AC": "violet"
     }
 
@@ -37,10 +38,10 @@ LINKS = {"VIC-SA": {"bus0": "VIC", "bus1": "SA", "p_nom":1000},
          "VIC-NSW": {"bus0": "VIC", "bus1": "NSW", "p_nom":2500},
          "NSW-QLD": {"bus0": "NSW", "bus1": "QLD", "p_nom":1500}}
 
-def create_network():
+def create_network(regions=["VIC"]):
     network = pypsa.Network(name="four-node-nem")
 
-    for name in REGIONS:
+    for name in regions:
         network.add("Bus", name=name, **REGION_DICT[name])
 
     add_carriers(network)
@@ -63,26 +64,26 @@ def solar_data():
 def wind_data():
     return pd.read_csv("wind.csv", index_col=0, parse_dates=True)
 
-def add_snapshots_and_loads(network):
+def add_snapshots_and_loads(network, regions=["VIC"]):
 
     df_load = load_data()
 
     network.set_snapshots(df_load.index)
 
     network.add("Load", 
-            REGIONS,
+            regions,
             suffix="_load", 
-            bus=REGIONS, 
-            p_set=df_load[REGIONS].clip(lower=0), 
+            bus=regions, 
+            p_set=df_load[regions].clip(lower=0), 
             carrier="load")
 
-def add_vre(network, df, tech, capex):
+def add_vre(network, df, tech, capex, regions=["VIC"]):
     network.add(
         "Generator",
-        REGIONS,
+        regions,
         suffix=f"_{tech}",
-        bus=REGIONS,
-        p_max_pu=df[REGIONS],
+        bus=regions,
+        p_max_pu=df[regions],
         p_nom_extendable=True,
         capital_cost=annuity(0.05, 30) * capex,
         carrier=tech)
@@ -99,36 +100,36 @@ def add_coal(network, region, capacity, tech, marginal, r_up=0.1, r_down=.2):
         ramp_limit_down=r_down,
         carrier= f"{tech}_coal")
 
-def add_gas(network, capex, marginal):
+def add_gas(network, capex, marginal, regions=["VIC"]):
     ## Add extendable gas generation
     network.add(
         "Generator",
-        REGIONS,
+        regions,
         suffix="_gas",
-        bus=REGIONS,
+        bus=regions,
         p_nom_extendable=True,
         marginal_cost=marginal,
         capital_cost=annuity(0.05, 30) * capex,
         carrier="gas")
 
-def add_generators(network):
+def add_generators(network, regions=["VIC"]):
     df_wind = wind_data()
-    add_vre(network, df_wind, "wind", capex=NEW_CAPACITY["wind"])
+    add_vre(network, df_wind, "wind", capex=NEW_CAPACITY["wind"], regions=regions)
 
     df_solar = solar_data()
-    add_vre(network, df_solar, "solar", capex=NEW_CAPACITY["solar"])
+    add_vre(network, df_solar, "solar", capex=NEW_CAPACITY["solar"], regions=regions)
 
-    add_gas(network, capex=NEW_CAPACITY["gas"], marginal=GAS_MARGINAL)
+    add_gas(network, capex=NEW_CAPACITY["gas"], marginal=GAS_MARGINAL, regions=regions)
 
-    for region in REGIONS:
+    for region in regions:
         if region != "SA":
             add_coal(network=network, region=region, **EXISTING_COAL[region])
 
-def add_links(network):
+def add_links(network, regions=["VIC"]):
 
 
     for name, attrs in LINKS.items():
-        if attrs["bus0"] in REGIONS and attrs["bus1"] in REGIONS:
+        if attrs["bus0"] in regions and attrs["bus1"] in regions:
                 network.add(
                         "Link",
                         name,
@@ -137,9 +138,26 @@ def add_links(network):
                         **attrs
                     )
                 
-def build_full_problem():
-    network = create_network()
-    add_snapshots_and_loads(network)
-    add_generators(network)
-    add_links(network)
+def build_network(regions=["VIC"]):
+    network = create_network(regions=regions)
+    add_snapshots_and_loads(network, regions=regions)
+    add_generators(network, regions=regions)
+    add_links(network, regions=regions)
     return network
+
+def add_storage(network, regions):
+    network.add(
+                "StorageUnit",
+                regions,
+                suffix= "_BESS",
+                bus=regions,
+                carrier="bess",
+                max_hours=8,
+                capital_cost=1_100_00,
+                efficiency_store=.95,
+                efficiency_dispatch=.95,
+                p_nom_extendable=True,
+                cyclic_state_of_charge=True,
+                marginal_cost = 1,
+                standing_loss=.001
+    )
